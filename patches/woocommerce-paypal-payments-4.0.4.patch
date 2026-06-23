@@ -62,7 +62,7 @@ diff -ur woocommerce-paypal-payments-4.0.4/woocommerce-paypal-payments.php wooco
 +
 +		return $links;
 +	},
-+	10,
++	PHP_INT_MAX,
 +	2
 +);
 +// END : wpatcher

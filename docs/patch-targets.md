@@ -3,7 +3,7 @@
 Research notes on what we patch in WooCommerce PayPal Payments (PPCP), why, and
 what we might patch in the future.
 
-Last updated: 2026-06-23 (plugin v4.0.4)
+Last updated: 2026-06-23 (plugin v4.1.0)
 
 ---
 
@@ -65,6 +65,26 @@ Off-switches that are **not** sufficient on their own:
 ## Future Candidates
 
 Targets identified during analysis that are not yet patched.
+
+### `ppcp-abilities` — AI-agent data exposure (WATCH, added v4.1.0)
+
+- **Module:** `modules/ppcp-abilities/` (new in 4.1.0).
+- **What it is:** registers read-only "abilities" via the WooCommerce 10.9+
+  Abilities API (for in-context AI agents / MCP) — `get-connection-status`,
+  `get-payment-methods`, `get-order-tracking`, `get-paypal-order`. They delegate
+  to existing REST controllers and to PayPal API calls.
+- **Why NOT patched yet:** it does **not** meet the patch bar. It is
+  **default-OFF** — gated behind `apply_filters(
+  'woocommerce_paypal_payments_abilities_enabled', \false)`
+  (`src/AbilitiesRegistrar.php`, "Default false during rollout") **and** requires
+  WC 10.9 (`class_exists(...AbilitiesLoader)`). It's admin-only
+  (`manage_woocommerce`) and redacts payer PII, `payment_source`, and API
+  credentials. We patch *default-on* data-sharing; this is opt-in and off.
+- **Trigger to patch:** if a future release flips the filter default to `\true`,
+  drops the WC-version gate, or widens the permission below `manage_woocommerce`.
+  Then early-return `AbilitiesRegistrar::init()` (or force the
+  `…_abilities_enabled` filter to `\false`) — same playbook as the store-sync
+  gate. Re-read this module every release.
 
 ### Agent REST endpoints (defensive double-disable)
 

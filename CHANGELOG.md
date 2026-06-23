@@ -5,6 +5,45 @@ PayPal Payments version.
 
 ---
 
+## 4.1.0 — 2026-06-23
+
+Carry-forward of the 4.0.4 patch to plugin v4.1.0. **No functional changes** —
+the same three hunks, which apply cleanly (no rejects, no fuzz). Both functional
+target files (`AgenticSettingsDataModel.php`, `SubscriptionHelper.php`) are
+byte-identical between 4.0.4 and 4.1.0, so both fixes carry over verbatim; the
+badge date is unchanged (same release day).
+
+Built against the GitHub release distributable
+(`woocommerce-paypal-payments.zip`) as 4.1.0 had not yet published to
+wordpress.org — that asset is the same build that lands on wordpress.org.
+
+Analysis of the 4.0.4 → 4.1.0 delta (two new modules, churn in `ppcp-store-sync`,
+`ppcp-settings`, `ppcp-api-client`) found **nothing new to patch**:
+- **`ppcp-store-sync`** — our `should_initialize_features() => false` gate still
+  fully neutralises it. `StoreSyncModule::run()` consults the same master gate;
+  a false result still deregisters and skips all registration, the
+  `ppcp_agentic_sync_batch` cron, and the agentic REST endpoints. Eligibility is
+  still US-only; no new outbound hosts (still `d.joinhoney.com`). The internal
+  surface grew (new `Ingestion/ProductDTO`, per-endpoint action hooks, a
+  `…_store_sync_ingestion_completed` action) but it's all transitively dead.
+- **`ppcp-abilities`** (new) — exposes read-only abilities (connection status,
+  payment methods, order tracking, PayPal order) to in-context AI agents via the
+  WC 10.9+ Abilities API. **Default-OFF** (filter
+  `woocommerce_paypal_payments_abilities_enabled` defaults `false`, and it
+  requires WC 10.9), admin-only (`manage_woocommerce`), with payer-PII/credential
+  redaction. Doesn't meet the patch bar (we patch *default-on* data-sharing).
+  Recorded as a watch item in `docs/patch-targets.md`.
+- **`ppcp-vault-component`** (new) — benign saved-card tokenisation; PayPal-only,
+  gated by `VaultComponentApplies`.
+- **Performance** — no new cron/Action Scheduler jobs vs 4.0.4; nothing new to
+  disable. (`ppcp-api-client` gained a `TokenRateLimiter` that *throttles* PayPal
+  auth-token requests — a vendor reliability win, left alone.)
+- **Bug-hunt** — the new/changed button code (`SmartButton`,
+  `WooCommerceOrderCreator`, `CartProductsHelper`) now uses real `if (!$product)`
+  guards rather than assert-only; no new `get_type()`-on-`false` fatal.
+
+---
+
 ## 4.0.4 — 2026-06-23
 
 First patch in this project. Two changes:
