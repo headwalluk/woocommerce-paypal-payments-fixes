@@ -1,0 +1,68 @@
+diff -ruN woocommerce-paypal-payments-4.1.1/modules/ppcp-store-sync/src/Setting/AgenticSettingsDataModel.php woocommerce-paypal-payments-4.1.1-patched/modules/ppcp-store-sync/src/Setting/AgenticSettingsDataModel.php
+--- woocommerce-paypal-payments-4.1.1/modules/ppcp-store-sync/src/Setting/AgenticSettingsDataModel.php	2026-05-19 16:19:40.000000000 +0100
++++ woocommerce-paypal-payments-4.1.1-patched/modules/ppcp-store-sync/src/Setting/AgenticSettingsDataModel.php	2026-07-07 15:00:22.443508883 +0100
+@@ -41,6 +41,12 @@
+      */
+     public function should_initialize_features(): bool
+     {
+-        return \true === $this->data['eligible'] && $this->is_active();
++        // wpatcher: hard-disable PayPal "Agentic Commerce" store-sync. Upstream this uploads the
++        // product catalogue to d.joinhoney.com (register + recurring ingestion) and opens public
++        // REST checkout endpoints for AI shopping agents. It is default-on ('active' => true) and
++        // self-arms once PayPal widens eligibility beyond the US, so we neutralise it at the vendor's
++        // own gate: StoreSyncModule::run() now always takes the early-exit + deregister path.
++        return \false;
++        // return \true === $this->data['eligible'] && $this->is_active();
+     }
+ }
+diff -ruN woocommerce-paypal-payments-4.1.1/modules/ppcp-wc-subscriptions/src/Helper/SubscriptionHelper.php woocommerce-paypal-payments-4.1.1-patched/modules/ppcp-wc-subscriptions/src/Helper/SubscriptionHelper.php
+--- woocommerce-paypal-payments-4.1.1/modules/ppcp-wc-subscriptions/src/Helper/SubscriptionHelper.php	2026-05-19 16:19:40.000000000 +0100
++++ woocommerce-paypal-payments-4.1.1-patched/modules/ppcp-wc-subscriptions/src/Helper/SubscriptionHelper.php	2026-07-07 15:00:22.443508883 +0100
+@@ -167,8 +167,8 @@
+     {
+         if ($this->current_product_is_subscription()) {
+             $product = wc_get_product();
+-            assert($product instanceof WC_Product);
+-            if ($product->get_type() === 'subscription' && $product->meta_exists('ppcp_subscription_plan')) {
++            // wpatcher: assert() is a no-op when zend.assertions=-1 (production), so guard with a real instanceof check.
++            if ($product instanceof WC_Product && $product->get_type() === 'subscription' && $product->meta_exists('ppcp_subscription_plan')) {
+                 return $product->get_meta('ppcp_subscription_plan')['id'];
+             }
+         }
+@@ -178,8 +178,12 @@
+         }
+         $items = $cart->get_cart_contents();
+         foreach ($items as $item) {
+-            $product = wc_get_product($item['product_id']);
+-            assert($product instanceof WC_Product);
++            // wpatcher: skip cart items with no product_id (avoids the "Undefined array key" warning) and any
++            // id that no longer resolves to a product (wc_get_product() returns false -> fatal get_type() on false).
++            $product = isset($item['product_id']) ? wc_get_product($item['product_id']) : \false;
++            if (!$product instanceof WC_Product) {
++                continue;
++            }
+             if ($product->get_type() === 'subscription' && $product->meta_exists('ppcp_subscription_plan')) {
+                 return $product->get_meta('ppcp_subscription_plan')['id'];
+             }
+diff -ruN woocommerce-paypal-payments-4.1.1/woocommerce-paypal-payments.php woocommerce-paypal-payments-4.1.1-patched/woocommerce-paypal-payments.php
+--- woocommerce-paypal-payments-4.1.1/woocommerce-paypal-payments.php	2026-07-07 13:53:22.000000000 +0100
++++ woocommerce-paypal-payments-4.1.1-patched/woocommerce-paypal-payments.php	2026-07-07 15:05:22.334255694 +0100
+@@ -189,3 +189,18 @@
+         return class_exists('woocommerce');
+     }
+ })();
++
++// START : wpatcher
++add_filter(
++	'plugin_row_meta',
++	function ( $links, $file ) {
++		if ( $file == 'woocommerce-paypal-payments/woocommerce-paypal-payments.php' ) {
++			$links['wpatcher'] = '<span style="background-color: purple; color: white; padding:0.2em 0.5em; font-weight: 700; border-radius: 0.3em">PATCHED : 2026-07-07</span>';
++		}
++
++		return $links;
++	},
++	PHP_INT_MAX,
++	2
++);
++// END : wpatcher

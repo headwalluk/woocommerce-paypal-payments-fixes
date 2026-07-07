@@ -90,7 +90,7 @@ This project started from a real incident: a client storefront throwing `500`s a
 
 While fixing that we audited the rest of the plugin and found the `ppcp-store-sync` "Agentic Commerce" module: default-on data-sharing that uploads the product catalogue to PayPal's Honey servers and opens public agent-checkout endpoints. It's gated to US merchants *today*, but it's enabled by default and clearly being widened. New data-sharing features being **on by default for existing installs** — rather than on for new installs and opt-in for everyone else — is exactly the pattern this project exists to push back on.
 
-A detailed write-up is available at [headwall-hosting.com](https://headwall-hosting.com/a-web-guys-blog/) *(coming soon)*.
+A detailed write-up is available at [headwall-hosting.com](https://headwall-hosting.com/blog/woocommerce-paypal-payments-patch/)
 
 This is a sibling project to [woocommerce-debloat](https://github.com/headwalluk/woocommerce-debloat), which does the same job for WooCommerce core.
 

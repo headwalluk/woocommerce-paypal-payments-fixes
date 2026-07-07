@@ -3,7 +3,7 @@
 Research notes on what we patch in WooCommerce PayPal Payments (PPCP), why, and
 what we might patch in the future.
 
-Last updated: 2026-06-23 (plugin v4.1.0)
+Last updated: 2026-07-07 (plugin v4.1.1)
 
 ---
 

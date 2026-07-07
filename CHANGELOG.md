@@ -5,6 +5,41 @@ PayPal Payments version.
 
 ---
 
+## 4.1.1 — 2026-07-07
+
+Carry-forward of the 4.1.0 patch to plugin v4.1.1. **No new targets** — the same
+three hunks apply cleanly (no rejects, no fuzz) against the wordpress.org 4.1.1
+build; only the badge date is bumped to 2026-07-07. Both functional target files
+(`AgenticSettingsDataModel.php`, `SubscriptionHelper.php`) are byte-identical
+between 4.1.0 and 4.1.1, and `ppcp-store-sync` as a whole is unchanged, so both
+fixes carry over verbatim.
+
+4.1.1 is a small vendor **security-hardening point release**. The 4.1.0 → 4.1.1
+delta is seven PHP files, all vendor-side, none touching our targets and none
+introducing a new outbound host, cron, or REST endpoint (host enumeration is
+identical to 4.1.0). Reviewed and left alone:
+- **`ApproveSubscriptionEndpoint`** — now *always* validates `custom_id` ownership
+  (binds the supplied PayPal order to the current shopper session), not only in
+  the no-subscription branch. IDOR hardening.
+- **`UpdateShippingEndpoint`** (+ `ppcp-blocks/services.php` wiring) — now injects
+  `SessionHandler` and rejects the request unless `order_id` matches the session
+  order. IDOR hardening.
+- **`CreditCardGateway::add_payment_token_to_order()`** — only attaches a saved
+  payment token when `$payment_token->get_user_id() === get_current_user_id()`,
+  i.e. the token belongs to the current user. IDOR hardening.
+- **`PUIPaymentMethod`** — early-returns when `WC()->cart` is not a `WC_Cart`
+  (Mini-Cart block context), skipping the costly checkout-fields build. Defensive
+  bug fix — same shape as our own null-guard fixes, but the vendor did it, so
+  nothing for us to add.
+- **`PartnersEndpoint`** — backs off the merchant-integrations endpoint after a
+  recent failure (via `FailureRegistry`) and refactors the fallback into
+  `handle_seller_status_failure()`. **`ProductStatus`** — aligns its failure-registry
+  TTL to `PartnersEndpoint::SELLER_STATUS_CACHE_TTL`. Vendor reliability, left alone.
+- **`ppcp-abilities`** (the 4.1.0 watch item) — unchanged, still default-OFF and
+  WC-10.9-gated. Watch item stands.
+
+---
+
 ## 4.1.0 — 2026-06-23
 
 Carry-forward of the 4.0.4 patch to plugin v4.1.0. **No functional changes** —
