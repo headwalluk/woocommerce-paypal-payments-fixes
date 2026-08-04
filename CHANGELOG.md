@@ -5,6 +5,85 @@ PayPal Payments version.
 
 ---
 
+## 4.1.2 — 2026-08-04
+
+Carry-forward of the 4.1.1 patch to plugin v4.1.2. **No new targets** — the same
+three hunks apply cleanly (no rejects, no fuzz) against the wordpress.org 4.1.2
+build; only the badge date is bumped to 2026-08-04.
+
+Unlike 4.1.0, this one was already downloadable from wordpress.org (published
+2026-08-04 15:25 GMT, the same day as the GitHub release), so it was built
+against the wordpress.org `latest-stable` zip via `scripts/prepare-analysis.sh`.
+
+The ~24-hour cooling-off is a separate thing: it gates when a release is offered
+to sites for **auto-update**, not when the zip appears on wordpress.org. As of
+2026-08-04 4.1.2 was not yet showing as available for auto-update, so it is
+expected to reach the fleet from the afternoon of **2026-08-05**. That gap is
+the useful one — the patch can be deployed to the WPatcher tree a day *ahead*
+of the plugin landing on client sites.
+
+4.1.2 is a **large vendor release** (~40 changed PHP files, one new module), but
+none of it lands on our targets:
+
+- **`AgenticSettingsDataModel.php`** — byte-identical to 4.1.1, so the
+  store-sync gate hunk carries over verbatim.
+- **`SubscriptionHelper.php`** — changed, but only by *additions* above our
+  target; `paypal_subscription_id()` itself is untouched and both hunks applied
+  at offset +40. **Our fix matters more in 4.1.2, not less:** the new
+  `paypal_subscription_button_allowed()` helper is called from
+  `SmartButton`'s **mini-cart** and **proceed-to-checkout** render hooks
+  (`subscription_button_allowed()`), and it reaches
+  `checkout_subscription_product_allowed()` → `paypal_subscription_id()` — the
+  exact unguarded `wc_get_product($item['product_id'])` loop we patch. In 4.1.1
+  that loop was only reached at localize time; in 4.1.2 it is also on the cart
+  page and mini-cart render path, so the fatal surface has widened.
+
+### Reviewed and left alone
+
+- **`ppcp-store-sync` churn** — the master gate is unchanged and still the single
+  choke point. `StoreSyncModule::run()` dropped its inline
+  `ensure_registered()` / `ensure_deregistered()` in favour of a new
+  **`Registration/ReconciliationService`**, hooked to the new
+  `woocommerce_paypal_payments_settings_saved` action. That reconciler calls the
+  same `should_initialize_features()`, so our forced `\false` still governs it —
+  and now means "desired = not registered", i.e. an already-registered store is
+  actively **deregistered** the next time the agentic settings are saved.
+  New `Ingestion/ProductFilter` (product eligibility + "parking" via
+  `_ppcp_agentic_last_sync` meta) and the ingestion/validation refactor around it
+  are all downstream of the closed gate and therefore inert.
+- **`ppcp-sdk-v6` (new module)** — PayPal JS SDK v6 loader: an `SdkV6Manager`
+  asset enqueue, a rate-limited `ClientTokenEndpoint`, PayPal hosts only. It is
+  **not loaded by default** — `modules.php` gates it behind
+  `getenv('PCP_SDK_V6_ENABLED') === '1'` / the
+  `woocommerce.feature-flags.woocommerce_paypal_payments.sdk_v6_enabled` filter,
+  the same dev-flag pattern as `ppcp-store-sync`. Nothing to patch; watch it as
+  it grows.
+- **`Settings/Service/MerchantDataResolver` (new)** — backfills an empty
+  `merchant_country` from PayPal's own seller-status API, bounded to 3 Action
+  Scheduler retries and only on connect/upgrade. Accounts for the two new
+  `as_schedule_single_action` call sites. PayPal-only, not telemetry.
+- **Vendor bug fixes of the same class we patch** — `Shipment` now guards a
+  non-array tracking meta, `AddressFactory` normalises PayPal's `[]`-for-`{}`
+  empty address, `IncomingWebhookEndpoint` wraps handling in a catch-all
+  `Throwable`, `Capture{Card,PayPal}Payment` retry a success-without-`id`
+  response, `CartEndpoint` hardens JSON decoding. Nothing left for us to add.
+- **`ppcp-abilities`** (the 4.1.0 watch item) — completely unchanged, still
+  default-OFF behind `woocommerce_paypal_payments_abilities_enabled` and
+  WC-10.9-gated. Watch item stands.
+
+### Data-sharing scan
+
+Clean: host enumeration is **identical** to 4.1.1 (PayPal hosts only, plus the
+already-suppressed `d.joinhoney.com`), `register_rest_route` count unchanged at
+37, no new recurring cron, and no new default-on data-sharing setting.
+
+> Cosmetic vendor slip, not patched: 4.1.2's plugin header docblock is mangled —
+> the leading asterisks lost their indent and a bare `SHA: e1d36e64…` line was
+> injected after `Version: 4.1.2`. It's still inside the comment block and WP
+> parses the version fine.
+
+---
+
 ## 4.1.1 — 2026-07-07
 
 Carry-forward of the 4.1.0 patch to plugin v4.1.1. **No new targets** — the same

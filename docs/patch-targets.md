@@ -3,7 +3,7 @@
 Research notes on what we patch in WooCommerce PayPal Payments (PPCP), why, and
 what we might patch in the future.
 
-Last updated: 2026-07-07 (plugin v4.1.1)
+Last updated: 2026-08-04 (plugin v4.1.2)
 
 ---
 
@@ -13,7 +13,7 @@ Last updated: 2026-07-07 (plugin v4.1.1)
 
 | File | Target | Patch | Why |
 |------|--------|-------|-----|
-| `modules/ppcp-wc-subscriptions/src/Helper/SubscriptionHelper.php` | `paypal_subscription_id()` | Replace dead `assert()`s with real `isset()` + `instanceof WC_Product` guards (`continue` on miss) | Cart item with no `product_id`, or an id that no longer resolves to a product, makes `wc_get_product()` return `false`; the next line calls `->get_type()` on it → `Uncaught Error: Call to a member function get_type() on false` (hard 500). `assert()` is compiled out in production so the vendor's guard does nothing. |
+| `modules/ppcp-wc-subscriptions/src/Helper/SubscriptionHelper.php` | `paypal_subscription_id()` | Replace dead `assert()`s with real `isset()` + `instanceof WC_Product` guards (`continue` on miss) | Cart item with no `product_id`, or an id that no longer resolves to a product, makes `wc_get_product()` return `false`; the next line calls `->get_type()` on it → `Uncaught Error: Call to a member function get_type() on false` (hard 500). `assert()` is compiled out in production so the vendor's guard does nothing. **Reach widened in 4.1.2:** also called from `SmartButton`'s mini-cart and proceed-to-checkout render hooks via `paypal_subscription_button_allowed()` → `checkout_subscription_product_allowed()`, not just at localize time. |
 
 ### Privacy / data-sharing
 
@@ -54,6 +54,17 @@ non-US store the gate is closed today — but `is_active()` defaults to `true`, 
 the day eligibility widens, sync begins with no further action. That's why we kill
 it at the gate rather than relying on geo-dormancy.
 
+Since **4.1.2**, registration is no longer driven from `StoreSyncModule::run()`
+(`ensure_registered()` / `ensure_deregistered()` are gone). It is handled by
+`Registration/ReconciliationService::reconcile()`, hooked to the new
+`woocommerce_paypal_payments_settings_saved` action. It reads the same
+`should_initialize_features()` gate, so our patch still governs it — and because
+the patched gate reports "desired = not registered", a store that had already
+registered gets **deregistered** on the next agentic settings save. Also new in
+4.1.2: `Ingestion/ProductFilter`, which decides product eligibility and "parks"
+ineligible products via the `_ppcp_agentic_last_sync` meta key; it is downstream
+of the gate and inert while the gate is shut.
+
 Off-switches that are **not** sufficient on their own:
 - `define( 'PPCP_AGENTIC_AUTO_REGISTER', false )` — only blocks auto-registration,
   not the ingestion schedule or REST endpoints once the feature is active.
@@ -85,6 +96,21 @@ Targets identified during analysis that are not yet patched.
   Then early-return `AbilitiesRegistrar::init()` (or force the
   `…_abilities_enabled` filter to `\false`) — same playbook as the store-sync
   gate. Re-read this module every release.
+
+### `ppcp-sdk-v6` — new SDK loader (WATCH, added v4.1.2)
+
+- **Module:** `modules/ppcp-sdk-v6/` (new in 4.1.2).
+- **What it is:** loader for PayPal's JS SDK v6 — an asset manager
+  (`Assets/SdkV6Manager`), a rate-limited client-token AJAX endpoint
+  (`Endpoint/ClientTokenEndpoint`, 10 requests / 60s), and a `RateLimiter`
+  helper. PayPal hosts only; no third-party destination.
+- **Why NOT patched:** it is **not loaded by default**. `modules.php` gates it on
+  `getenv('PCP_SDK_V6_ENABLED') === '1'` / the
+  `woocommerce.feature-flags.woocommerce_paypal_payments.sdk_v6_enabled` filter —
+  the same dev-flag pattern as `ppcp-store-sync`.
+- **Trigger to patch:** if a release flips that flag on by default, or the module
+  grows a non-PayPal destination. Re-read it each release; it will likely become
+  the main button/checkout path over time.
 
 ### Agent REST endpoints (defensive double-disable)
 
