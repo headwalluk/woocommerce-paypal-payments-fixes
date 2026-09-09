@@ -3,7 +3,7 @@
 Research notes on what we patch in WooCommerce PayPal Payments (PPCP), why, and
 what we might patch in the future.
 
-Last updated: 2026-08-04 (plugin v4.1.2)
+Last updated: 2026-09-09 (plugin v4.1.3)
 
 ---
 
@@ -13,7 +13,7 @@ Last updated: 2026-08-04 (plugin v4.1.2)
 
 | File | Target | Patch | Why |
 |------|--------|-------|-----|
-| `modules/ppcp-wc-subscriptions/src/Helper/SubscriptionHelper.php` | `paypal_subscription_id()` | Replace dead `assert()`s with real `isset()` + `instanceof WC_Product` guards (`continue` on miss) | Cart item with no `product_id`, or an id that no longer resolves to a product, makes `wc_get_product()` return `false`; the next line calls `->get_type()` on it → `Uncaught Error: Call to a member function get_type() on false` (hard 500). `assert()` is compiled out in production so the vendor's guard does nothing. **Reach widened in 4.1.2:** also called from `SmartButton`'s mini-cart and proceed-to-checkout render hooks via `paypal_subscription_button_allowed()` → `checkout_subscription_product_allowed()`, not just at localize time. |
+| `modules/ppcp-wc-subscriptions/src/Helper/SubscriptionHelper.php` | `paypal_subscription_id()` | Replace dead `assert()`s with real `isset()` + `instanceof WC_Product` guards (`continue` on miss) | Cart item with no `product_id`, or an id that no longer resolves to a product, makes `wc_get_product()` return `false`; the next line calls `->get_type()` on it → `Uncaught Error: Call to a member function get_type() on false` (hard 500). `assert()` is compiled out in production so the vendor's guard does nothing. **Reach widened in 4.1.2:** also called from `SmartButton`'s mini-cart and proceed-to-checkout render hooks via `paypal_subscription_button_allowed()` → `checkout_subscription_product_allowed()`, not just at localize time. **Widened again in 4.1.3:** `DisableGateways::handler()` (on the `woocommerce_available_payment_gateways` filter) now reaches it via `subscription_cart_processable()`, and `need_subscription_intent()` reaches it on the product page under Accept Manual Renewals. Still unfixed upstream — `paypal_subscription_id()` is byte-identical in 4.1.3. |
 
 ### Privacy / data-sharing
 
@@ -97,20 +97,63 @@ Targets identified during analysis that are not yet patched.
   `…_abilities_enabled` filter to `\false`) — same playbook as the store-sync
   gate. Re-read this module every release.
 
-### `ppcp-sdk-v6` — new SDK loader (WATCH, added v4.1.2)
+### `ppcp-sdk-v6` — new SDK loader (WATCH, added v4.1.2, re-assessed v4.1.3)
 
-- **Module:** `modules/ppcp-sdk-v6/` (new in 4.1.2).
-- **What it is:** loader for PayPal's JS SDK v6 — an asset manager
-  (`Assets/SdkV6Manager`), a rate-limited client-token AJAX endpoint
-  (`Endpoint/ClientTokenEndpoint`, 10 requests / 60s), and a `RateLimiter`
-  helper. PayPal hosts only; no third-party destination.
-- **Why NOT patched:** it is **not loaded by default**. `modules.php` gates it on
-  `getenv('PCP_SDK_V6_ENABLED') === '1'` / the
-  `woocommerce.feature-flags.woocommerce_paypal_payments.sdk_v6_enabled` filter —
-  the same dev-flag pattern as `ppcp-store-sync`.
-- **Trigger to patch:** if a release flips that flag on by default, or the module
-  grows a non-PayPal destination. Re-read it each release; it will likely become
-  the main button/checkout path over time.
+- **Module:** `modules/ppcp-sdk-v6/` (new in 4.1.2, substantially expanded in
+  4.1.3).
+- **What it is:** loader for PayPal's JS SDK v6. As of 4.1.3 it also carries
+  block-checkout integration, `CartQuoteEndpoint` / `SimulateCartEndpoint`,
+  `AddPaymentMethodManager`, Apple Pay / Google Pay / Fastlane config helpers,
+  and a `SessionRecord` family (`RecordedQuote`, `RecordedShippingRate`,
+  `RecordedTaxBasis`) that carries a wallet sheet's shipping/tax/quote decisions
+  through to the resulting order. PayPal hosts only; no third-party destination.
+- **Arming changed in 4.1.3.** `modules.php` used to gate purely on
+  `getenv('PCP_SDK_V6_ENABLED') === '1'`. It now reads:
+
+  ```php
+  getenv( 'PCP_SDK_V6_ENABLED' ) === '1' || 'yes' === get_option( 'woocommerce-ppcp-sdk-v6-eligible' )
+  ```
+
+- **Why NOT patched:** the stored option is set **on-for-new, off-for-existing**,
+  which is the pattern this repo exists to ask for. In
+  `woocommerce-paypal-payments.php`, on the version-change hook:
+
+  ```php
+  if ( \false === get_option( 'woocommerce-ppcp-sdk-v6-eligible', \false ) ) {
+      update_option( 'woocommerce-ppcp-sdk-v6-eligible', $installed_plugin_version ? 'no' : 'yes' );
+  }
+  ```
+
+  `$installed_plugin_version` is the previously stored `woocommerce-ppcp-version`,
+  so an existing install upgrading to 4.1.3 gets `'no'` and stays on SDK v5; only
+  a fresh install gets `'yes'`. The `\false === get_option(...)` guard means it is
+  computed exactly once and never recomputed, and `SdkV6Module` writes `'no'`
+  back for unsupported merchant countries. Contrast the agentic store-sync
+  toggle, which defaults **on** for existing installs — that is the difference
+  that decides whether we patch.
+- **Trigger to patch:** a release that flips *existing* installs to `'yes'`, arms
+  the module from PayPal-side eligibility rather than install age, or grows a
+  non-PayPal destination. Note separately that **new** client sites built on
+  4.1.3+ get the v6 checkout path by default — a stability consideration, not a
+  privacy one.
+
+### `ppcp-compat/PluginDetector` — unconsumed product scanner (WATCH, added v4.1.3)
+
+- **Files:** `modules/ppcp-compat/src/PluginDetector/PluginDetector.php`,
+  `ProductCustomizationDetector.php`.
+- **What it is:** local-only detection of whether a product has been customised
+  by a first-party WooCommerce extension (Subscriptions, Gift Cards, Product
+  Bundles, Product Add-Ons, Min/Max Quantities, Composite Products, Shipping Per
+  Product, Deposits). Makes no outbound calls.
+- **Why NOT patched:** nothing consumes it. It is registered in
+  `ppcp-compat/services.php` as `compat.product-customization-detector` and that
+  service id appears **nowhere else in the tree** — dead code shipped ahead of
+  its consumer.
+- **Trigger to patch:** when a consumer appears. A per-product customisation scan
+  is the shape of thing agentic catalogue ingestion wants (deciding which
+  products an external agent can be sold), so check what wires it up — if it is
+  `ppcp-store-sync`, it is inert behind our gate patch and needs nothing; if it
+  is anything that reports outward, re-assess.
 
 ### Agent REST endpoints (defensive double-disable)
 

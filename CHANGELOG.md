@@ -5,6 +5,125 @@ PayPal Payments version.
 
 ---
 
+## 4.1.3 — 2026-09-09
+
+Carry-forward of the 4.1.2 patch to plugin v4.1.3. **No new targets** — the same
+three hunks apply against the wordpress.org 4.1.3 build with no rejects and no
+fuzz (offset +68 in `SubscriptionHelper.php`, +4 in the main plugin file); only
+the badge date is bumped to 2026-09-09.
+
+Built from the wordpress.org `latest-stable` zip via
+`scripts/prepare-analysis.sh` (published 2026-09-09 13:34 GMT).
+
+4.1.3 is another **large vendor release** (~227 changed paths, one new module,
+one heavily expanded module), but nothing lands on our targets and nothing we
+patch has been fixed upstream.
+
+### Nothing fixed upstream
+
+`paypal_subscription_id()` is **byte-identical to 4.1.2** — the vendor's dead
+`assert($product instanceof WC_Product)` "guards" are still in place, so the
+`get_type()`-on-`false` fatal is still live in stock 4.1.3.
+
+### Our fix matters more again in 4.1.3
+
+`SubscriptionHelper.php` was substantially reworked *around* our target (manual-
+renewal handling, a new `resolve_subscription_mode()`), and the crash surface
+widened for the second release running:
+
+- **New:** `WcGateway\Checkout\DisableGateways::handler()` now calls
+  `subscription_cart_processable()` → `paypal_subscription_button_allowed()` →
+  `checkout_subscription_product_allowed()` → `paypal_subscription_id()`. That
+  handler is on the `woocommerce_available_payment_gateways` filter, so the
+  unguarded `wc_get_product($item['product_id'])` loop is now reached during
+  **gateway availability** — earlier, and in more contexts (cart, checkout,
+  block/Store API checkout, change-payment-method, admin order creation) than
+  the 4.1.2 mini-cart/proceed-to-checkout render path.
+- **New:** `need_subscription_intent()` now calls `paypal_subscription_id()` on
+  the **product page** when Accept Manual Renewals is on.
+
+In 4.1.1 the loop was reached at localize time only. Three releases later it is
+on the gateway-availability filter. Keep the guard.
+
+### Reviewed and left alone
+
+- **No new data-sharing anywhere.** Host list is byte-identical between 4.1.2 and
+  4.1.3 (no new domains); `wp_remote_*` call sites unchanged; no new
+  `register_rest_route` registrations (only line-number drift); no new Action
+  Scheduler / `wp_schedule_*` jobs; no `get_defaults()` changed.
+- **`ppcp-order-endpoints` (new module)** — a pure refactor, not new surface.
+  `AbstractCartEndpoint`, `ApproveOrderEndpoint`, `ChangeCartEndpoint`,
+  `CreateOrderEndpoint`, `RequestData`, `CartProductsHelper`,
+  `EarlyOrderHandler` and `WooCommerceOrderCreator` moved out of `ppcp-button`
+  and `ppcp-blocks` into a shared module (plus `UpdateShippingEndpoint`). Same
+  AJAX endpoints, same nonce checks.
+- **`ppcp-store-sync` churn** — `CouponValidator`, `ShippingValidator`,
+  `CheckoutEndpoint`, `AgenticCheckoutProcessor` and `ProductManager` changed,
+  but `AgenticSettingsDataModel` is **byte-identical to 4.1.2**, so the gate
+  hunk carries over verbatim. `StoreSyncModule::run()` is structurally unchanged
+  (early exit before REST registration and ingestion), and
+  `ReconciliationService::reconcile()` still reads the same
+  `should_initialize_features()` — so our forced `\false` still governs
+  registration and still means "desired = not registered".
+  `RegistrationEligibility::is_eligible()` is **still US-only**, `// todo:
+  shipping country must be US` and all.
+- **New API-client plumbing** — `Helper/ApiHostResolver` and
+  `Authentication/ResolvingBearer` resolve the PayPal API host/bearer per request
+  instead of freezing them at construction. PayPal hosts only; a correctness fix,
+  nothing to patch.
+- **`ppcp-compat/WooCommerceBlueprint/ConnectionDataSanitizer` (new)** — strips
+  `client_id`, `client_secret`, `merchant_id`, `merchant_email` and onboarding
+  flags from Blueprint exports. A privacy *improvement*; leave it alone.
+- **`ppcp-compat/PluginDetector` (new)** — local-only detection of first-party
+  WooCommerce extensions that customise products (Subscriptions, Gift Cards,
+  Bundles, Add-Ons, …). No outbound calls. Registered in `services.php` as
+  `compat.product-customization-detector` but **not injected anywhere yet** —
+  dead code, almost certainly groundwork for agentic product ingestion. Watch it.
+- **`ppcp-abilities`** — **byte-identical to 4.1.2**. Still default-OFF behind
+  `apply_filters( 'woocommerce_paypal_payments_abilities_enabled', \false )`.
+  Below the patch bar, as before.
+- **`ppcp-sdk-v6`** — see below; gained a lot of code and a new arming path, but
+  the arming path is the *correct* one.
+
+### `ppcp-sdk-v6`: the new arming path is the right pattern
+
+The module grew substantially (block checkout integration, `CartQuoteEndpoint`,
+`SimulateCartEndpoint`, `AddPaymentMethodManager`, Apple Pay / Google Pay /
+Fastlane config helpers, and a `SessionRecord` family carrying wallet-sheet
+shipping/tax/quote decisions through to the order). Its module gate also changed:
+
+```php
+// 4.1.2
+getenv( 'PCP_SDK_V6_ENABLED' ) === '1'
+// 4.1.3
+getenv( 'PCP_SDK_V6_ENABLED' ) === '1' || 'yes' === get_option( 'woocommerce-ppcp-sdk-v6-eligible' )
+```
+
+A stored option that arms a module by itself is normally exactly what this repo
+patches. **Not here** — `woocommerce-paypal-payments.php` sets it once, on the
+version-change hook, as:
+
+```php
+update_option( 'woocommerce-ppcp-sdk-v6-eligible', $installed_plugin_version ? 'no' : 'yes' );
+```
+
+`$installed_plugin_version` is the previously stored `woocommerce-ppcp-version`,
+so an **existing install upgrading to 4.1.3 gets `'no'`** and stays on SDK v5,
+while only a **fresh install gets `'yes'`**. It is guarded by
+`\false === get_option( … )` so it is computed exactly once and never
+recomputed, and `SdkV6Module` self-disables it back to `'no'` for unsupported
+merchant countries.
+
+That is on-for-new, off-for-existing — the pattern we have been asking for, and
+the opposite of the agentic store-sync default-on behaviour. **No patch.** Note
+that a *newly built* store on 4.1.3 will get the v6 checkout path by default,
+which is a stability consideration for new client sites rather than a privacy
+one. Re-read the gate each release: if a future version flips existing installs
+to `'yes'`, or arms the module from PayPal-side eligibility, that becomes a
+target.
+
+---
+
 ## 4.1.2 — 2026-08-04
 
 Carry-forward of the 4.1.1 patch to plugin v4.1.2. **No new targets** — the same
