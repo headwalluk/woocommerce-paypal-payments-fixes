@@ -38,6 +38,7 @@ Patches are provided per plugin version. Check the `patches/` directory for your
 
 | WooCommerce PayPal Payments | Patch file |
 |---|---|
+| 4.2.0 | `patches/woocommerce-paypal-payments-4.2.0.patch` |
 | 4.1.3 | `patches/woocommerce-paypal-payments-4.1.3.patch` |
 | 4.1.2 | `patches/woocommerce-paypal-payments-4.1.2.patch` |
 | 4.1.1 | `patches/woocommerce-paypal-payments-4.1.1.patch` |

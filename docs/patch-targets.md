@@ -3,7 +3,7 @@
 Research notes on what we patch in WooCommerce PayPal Payments (PPCP), why, and
 what we might patch in the future.
 
-Last updated: 2026-09-09 (plugin v4.1.3)
+Last updated: 2026-10-21 (plugin v4.2.0)
 
 ---
 
@@ -13,7 +13,7 @@ Last updated: 2026-09-09 (plugin v4.1.3)
 
 | File | Target | Patch | Why |
 |------|--------|-------|-----|
-| `modules/ppcp-wc-subscriptions/src/Helper/SubscriptionHelper.php` | `paypal_subscription_id()` | Replace dead `assert()`s with real `isset()` + `instanceof WC_Product` guards (`continue` on miss) | Cart item with no `product_id`, or an id that no longer resolves to a product, makes `wc_get_product()` return `false`; the next line calls `->get_type()` on it → `Uncaught Error: Call to a member function get_type() on false` (hard 500). `assert()` is compiled out in production so the vendor's guard does nothing. **Reach widened in 4.1.2:** also called from `SmartButton`'s mini-cart and proceed-to-checkout render hooks via `paypal_subscription_button_allowed()` → `checkout_subscription_product_allowed()`, not just at localize time. **Widened again in 4.1.3:** `DisableGateways::handler()` (on the `woocommerce_available_payment_gateways` filter) now reaches it via `subscription_cart_processable()`, and `need_subscription_intent()` reaches it on the product page under Accept Manual Renewals. Still unfixed upstream — `paypal_subscription_id()` is byte-identical in 4.1.3. |
+| `modules/ppcp-wc-subscriptions/src/Helper/SubscriptionHelper.php` | `paypal_subscription_id()` | Replace dead `assert()`s with real `isset()` + `instanceof WC_Product` guards (`continue` on miss) | Cart item with no `product_id`, or an id that no longer resolves to a product, makes `wc_get_product()` return `false`; the next line calls `->get_type()` on it → `Uncaught Error: Call to a member function get_type() on false` (hard 500). `assert()` is compiled out in production so the vendor's guard does nothing. **Reach widened in 4.1.2:** also called from `SmartButton`'s mini-cart and proceed-to-checkout render hooks via `paypal_subscription_button_allowed()` → `checkout_subscription_product_allowed()`, not just at localize time. **Widened again in 4.1.3:** `DisableGateways::handler()` (on the `woocommerce_available_payment_gateways` filter) now reaches it via `subscription_cart_processable()`, and `need_subscription_intent()` reaches it on the product page under Accept Manual Renewals. Still unfixed upstream — `SubscriptionHelper.php` is byte-identical in 4.1.3 and 4.2.0. |
 
 ### Privacy / data-sharing
 
@@ -97,45 +97,39 @@ Targets identified during analysis that are not yet patched.
   `…_abilities_enabled` filter to `\false`) — same playbook as the store-sync
   gate. Re-read this module every release.
 
-### `ppcp-sdk-v6` — new SDK loader (WATCH, added v4.1.2, re-assessed v4.1.3)
+### `ppcp-sdk-v6` — PayPal JS SDK v6 (ACCEPTED, added v4.1.2, decided v4.2.0)
 
 - **Module:** `modules/ppcp-sdk-v6/` (new in 4.1.2, substantially expanded in
-  4.1.3).
-- **What it is:** loader for PayPal's JS SDK v6. As of 4.1.3 it also carries
-  block-checkout integration, `CartQuoteEndpoint` / `SimulateCartEndpoint`,
-  `AddPaymentMethodManager`, Apple Pay / Google Pay / Fastlane config helpers,
-  and a `SessionRecord` family (`RecordedQuote`, `RecordedShippingRate`,
-  `RecordedTaxBasis`) that carries a wallet sheet's shipping/tax/quote decisions
-  through to the resulting order. PayPal hosts only; no third-party destination.
-- **Arming changed in 4.1.3.** `modules.php` used to gate purely on
-  `getenv('PCP_SDK_V6_ENABLED') === '1'`. It now reads:
-
-  ```php
-  getenv( 'PCP_SDK_V6_ENABLED' ) === '1' || 'yes' === get_option( 'woocommerce-ppcp-sdk-v6-eligible' )
-  ```
-
-- **Why NOT patched:** the stored option is set **on-for-new, off-for-existing**,
-  which is the pattern this repo exists to ask for. In
-  `woocommerce-paypal-payments.php`, on the version-change hook:
-
-  ```php
-  if ( \false === get_option( 'woocommerce-ppcp-sdk-v6-eligible', \false ) ) {
-      update_option( 'woocommerce-ppcp-sdk-v6-eligible', $installed_plugin_version ? 'no' : 'yes' );
-  }
-  ```
-
-  `$installed_plugin_version` is the previously stored `woocommerce-ppcp-version`,
-  so an existing install upgrading to 4.1.3 gets `'no'` and stays on SDK v5; only
-  a fresh install gets `'yes'`. The `\false === get_option(...)` guard means it is
-  computed exactly once and never recomputed, and `SdkV6Module` writes `'no'`
-  back for unsupported merchant countries. Contrast the agentic store-sync
-  toggle, which defaults **on** for existing installs — that is the difference
-  that decides whether we patch.
-- **Trigger to patch:** a release that flips *existing* installs to `'yes'`, arms
-  the module from PayPal-side eligibility rather than install age, or grows a
-  non-PayPal destination. Note separately that **new** client sites built on
-  4.1.3+ get the v6 checkout path by default — a stability consideration, not a
-  privacy one.
+  4.1.3, default for all stores from 4.2.0).
+- **What it is:** loader for PayPal's JS SDK v6, plus block-checkout integration,
+  `CartQuoteEndpoint` / `SimulateCartEndpoint`, `AddPaymentMethodManager`,
+  Apple Pay / Google Pay / Fastlane config helpers, and a `SessionRecord` family
+  (`RecordedQuote`, `RecordedShippingRate`, `RecordedTaxBasis`) that carries a
+  wallet sheet's shipping/tax/quote decisions through to the resulting order.
+  PayPal hosts only; no third-party destination.
+- **Arming history:**
+  - 4.1.2: `getenv('PCP_SDK_V6_ENABLED') === '1'` only.
+  - 4.1.3: `|| 'yes' === get_option('woocommerce-ppcp-sdk-v6-eligible')`, with the
+    option set once on the version-change hook to `'no'` for upgrades and `'yes'`
+    for fresh installs (on-for-new, off-for-existing).
+  - 4.2.0: `|| 'no' !== get_option('woocommerce-ppcp-sdk-v6-eligible')` (a missing
+    option now means v6). The set-once logic is gone, and
+    `CompatModule::migrate_sdk_v6_default()` runs once on update (marker
+    `woocommerce_ppcp-is_sdk_v6_default_migrated`), rewriting anything not `'yes'`
+    to `'yes'` for supported merchant countries and `'no'` otherwise.
+    `SdkV6Module` still writes `'no'` for unsupported countries on merchant
+    authentication.
+- **Decision (2026-10-21): not patched.** 4.2.0 tripped the trigger we had
+  recorded (existing installs flipped to v6), but v6 talks only to PayPal and is
+  the vendor's intended default, so it is outside this repo's crash/data-sharing
+  remit. We accept the migration and handle any client-reported checkout issues
+  as they arise.
+- **Per-store escape hatch:** the
+  `woocommerce.feature-flags.woocommerce_paypal_payments.sdk_v6_enabled` filter
+  pins a store to v5 (or v6). Setting the option to `'no'` also works once the
+  migration marker is set.
+- **Re-assess if:** the module grows a non-PayPal destination, or v6 produces
+  crashes we would otherwise patch.
 
 ### `ppcp-compat/PluginDetector` — unconsumed product scanner (WATCH, added v4.1.3)
 
@@ -145,7 +139,7 @@ Targets identified during analysis that are not yet patched.
   by a first-party WooCommerce extension (Subscriptions, Gift Cards, Product
   Bundles, Product Add-Ons, Min/Max Quantities, Composite Products, Shipping Per
   Product, Deposits). Makes no outbound calls.
-- **Why NOT patched:** nothing consumes it. It is registered in
+- **Why NOT patched:** nothing consumes it (still true in 4.2.0). It is registered in
   `ppcp-compat/services.php` as `compat.product-customization-detector` and that
   service id appears **nowhere else in the tree** — dead code shipped ahead of
   its consumer.

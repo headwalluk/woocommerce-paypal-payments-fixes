@@ -5,6 +5,80 @@ PayPal Payments version.
 
 ---
 
+## 4.2.0 — 2026-10-21
+
+Carry-forward of the 4.1.3 patch to plugin v4.2.0. **No new targets** — the same
+three hunks apply against the wordpress.org 4.2.0 build with no rejects and no
+fuzz (offset -4 in the main plugin file); only the badge date is bumped to
+2026-10-21.
+
+Built from the wordpress.org `latest-stable` zip via
+`scripts/prepare-analysis.sh`.
+
+A minor-version vendor release (125 changed PHP files across 25 modules, no new
+modules), dominated by SDK v6 rollout and checkout fixes.
+
+### Nothing fixed upstream
+
+`SubscriptionHelper.php` is **byte-identical to 4.1.3** — `paypal_subscription_id()`
+still relies on dead `assert()` guards, so the `get_type()`-on-`false` fatal is
+still live in stock 4.2.0. Notably, every new `wc_get_product()` /
+`wc_get_order()` call added in 4.2.0 *does* carry a real `instanceof` guard; this
+one is simply not being revisited.
+
+### Reviewed and left alone
+
+- **No new data-sharing anywhere.** No new hosts; the set of files making
+  `wp_remote_*` calls is unchanged; no new `register_rest_route` registrations;
+  the only Action Scheduler change is a start-time offset in
+  `IngestionManager` (behind the store-sync gate).
+- **`ppcp-store-sync`** — `AgenticSettingsDataModel`, `StoreSyncModule`,
+  `RegistrationEligibility`, `AgenticWebhookConfiguration`, `services.php` and
+  `module.php` are all **byte-identical to 4.1.3**, so the gate hunk carries over
+  verbatim and still governs REST registration, ingestion and reconciliation.
+  The seven changed files (`ProductManager`, `IngestionManager`,
+  `ProductsPayload`, `SyncJob`, `AgenticSessionHandler`, `AgenticWcSession`,
+  `StorePayPalCart`) are all downstream of the gate. `ProductsPayload` now also
+  sends the parent's short description for variations — inert while patched.
+  Eligibility is **still US-only**.
+- **`ppcp-abilities`** — reworked onto the DI container (#4698), but still
+  default-OFF behind `apply_filters( 'woocommerce_paypal_payments_abilities_enabled', \false )`,
+  still `manage_woocommerce`, and the permission callback now fails closed when
+  unbound. Below the patch bar, as before.
+- **Card payment payer data (#4650)** — buyer email, name, phone and billing
+  address now sent when creating a card payment. Destination is PayPal; leave
+  alone.
+- **New AJAX endpoints** — `ppc-frontend-log` (nonce-checked, 1024-char line cap,
+  writes to the local WC logger only) and `ppc-free-trial-vault-return`
+  (order-bound one-time nonce). Nothing to patch.
+
+### `ppcp-sdk-v6`: existing stores are now migrated to v6
+
+The trigger noted in `docs/patch-targets.md` has fired. 4.2.0 removes the 4.1.3
+set-once "existing installs stay on v5" logic from the main plugin file and
+inverts the module gate in `modules.php`:
+
+```php
+// 4.1.3
+'yes' === get_option( 'woocommerce-ppcp-sdk-v6-eligible' )
+// 4.2.0
+'no' !== get_option( 'woocommerce-ppcp-sdk-v6-eligible' )
+```
+
+A new one-time migration, `CompatModule::migrate_sdk_v6_default()` (marker
+option `woocommerce_ppcp-is_sdk_v6_default_migrated`), rewrites any value other
+than `'yes'` to `'yes'` for supported merchant countries (`'no'` otherwise) on
+plugin update. So **every existing store moves to the SDK v6 checkout on upgrade
+to 4.2.0.**
+
+**No patch — deliberate decision.** v6 talks only to PayPal and is the vendor's
+intended default, so it falls outside this repo's crash/data-sharing remit. We
+accept the vendor behaviour and will deal with any client-reported checkout
+issues as they arise. A store can be pinned back to v5 with the
+`woocommerce.feature-flags.woocommerce_paypal_payments.sdk_v6_enabled` filter.
+
+---
+
 ## 4.1.3 — 2026-09-09
 
 Carry-forward of the 4.1.2 patch to plugin v4.1.3. **No new targets** — the same
