@@ -44,10 +44,39 @@ diff -ruN woocommerce-paypal-payments-4.2.0/modules/ppcp-wc-subscriptions/src/He
              if ($product->get_type() === 'subscription' && $product->meta_exists('ppcp_subscription_plan')) {
                  return $product->get_meta('ppcp_subscription_plan')['id'];
              }
+diff -ruN woocommerce-paypal-payments-4.2.0/modules.php woocommerce-paypal-payments-4.2.0-patched/modules.php
+--- woocommerce-paypal-payments-4.2.0/modules.php	2026-10-21 16:14:56.000000000 +0100
++++ woocommerce-paypal-payments-4.2.0-patched/modules.php	2026-10-28 06:01:31.715267635 +0000
+@@ -54,7 +54,11 @@
+      *
+      * @param bool $sdk_v6_enabled Whether to load the SDK v6 module.
+      */
+-    if (apply_filters('woocommerce.feature-flags.woocommerce_paypal_payments.sdk_v6_enabled', getenv('PCP_SDK_V6_ENABLED') === '1' || 'no' !== get_option('woocommerce-ppcp-sdk-v6-eligible'))) {
++    // wpatcher: force SDK v5. Under v6 (4.2.0 default) product pages left open retry the
++    // ppc-sdk-v6-client-token request every ~30s forever once its nonce expires. Other modules
++    // guard on $c->has('sdk-v6.*'), so leaving the module unloaded is the vendor's own "no" path.
++    if (\false) {
++    // if (apply_filters('woocommerce.feature-flags.woocommerce_paypal_payments.sdk_v6_enabled', getenv('PCP_SDK_V6_ENABLED') === '1' || 'no' !== get_option('woocommerce-ppcp-sdk-v6-eligible'))) {
+         $modules[] = (require "{$modules_dir}/ppcp-sdk-v6/module.php")();
+     }
+     return $modules;
 diff -ruN woocommerce-paypal-payments-4.2.0/woocommerce-paypal-payments.php woocommerce-paypal-payments-4.2.0-patched/woocommerce-paypal-payments.php
 --- woocommerce-paypal-payments-4.2.0/woocommerce-paypal-payments.php	2026-10-21 16:14:56.000000000 +0100
-+++ woocommerce-paypal-payments-4.2.0-patched/woocommerce-paypal-payments.php	2026-10-21 17:25:45.964443907 +0100
-@@ -190,3 +190,18 @@
++++ woocommerce-paypal-payments-4.2.0-patched/woocommerce-paypal-payments.php	2026-10-28 06:00:23.670372250 +0000
+@@ -20,6 +20,12 @@
+  */
+ declare (strict_types=1);
+ namespace WooCommerce\PayPalCommerce;
++// wpatcher: tabs opened under SDK v6 keep POSTing for a client token until closed, and the endpoint
++// no longer exists with v6 off. End those requests here, before the remaining plugins, theme and init run.
++if (isset($_SERVER['REQUEST_METHOD'], $_GET['wc-ajax']) && 'POST' === $_SERVER['REQUEST_METHOD'] && 'ppc-sdk-v6-client-token' === $_GET['wc-ajax']) {
++    status_header(410);
++    exit;
++}
+ 
+ define('PAYPAL_API_URL', 'https://api-m.paypal.com');
+ define('PAYPAL_URL', 'https://www.paypal.com');
+@@ -190,3 +196,18 @@
          return class_exists('woocommerce');
      }
  })();
@@ -57,7 +86,7 @@ diff -ruN woocommerce-paypal-payments-4.2.0/woocommerce-paypal-payments.php wooc
 +	'plugin_row_meta',
 +	function ( $links, $file ) {
 +		if ( $file == 'woocommerce-paypal-payments/woocommerce-paypal-payments.php' ) {
-+			$links['wpatcher'] = '<span style="background-color: purple; color: white; padding:0.2em 0.5em; font-weight: 700; border-radius: 0.3em">PATCHED : 2026-10-21</span>';
++			$links['wpatcher'] = '<span style="background-color: purple; color: white; padding:0.2em 0.5em; font-weight: 700; border-radius: 0.3em">PATCHED : 2026-10-28</span>';
 +		}
 +
 +		return $links;

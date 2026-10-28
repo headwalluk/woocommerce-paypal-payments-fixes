@@ -5,6 +5,28 @@ PayPal Payments version.
 
 ---
 
+## 4.2.0 (revised) — 2026-10-28
+
+Two new hunks that reverse the 2026-10-21 decision to accept SDK v6. Badge date
+bumped to 2026-10-28.
+
+- **`modules.php`: SDK v6 forced off.** The v6 token refresher in
+  `ppcp-sdk-v6-js-boot.js` reschedules itself after any failure and never
+  stops. Once the page nonce expires, a product page left open POSTs
+  `?wc-ajax=ppc-sdk-v6-client-token` about every 30s indefinitely and gets a 400
+  each time ([support thread](https://wordpress.org/support/topic/4-2-0-product-pages-left-open-retry-the-paypal-token-request-every-30-seconds-f/);
+  the vendor has acknowledged it and promises 4.2.1). The gate condition is
+  replaced with `\false`, so every store runs v5 whatever the filter or
+  `woocommerce-ppcp-sdk-v6-eligible` says. This replaces the
+  `headwall-ppcp-sdk-v5.php` mu-plugin.
+- **`woocommerce-paypal-payments.php`: leftover polls short-circuited.** Tabs
+  that loaded under v6 keep polling until they are closed. A guard straight after
+  the `namespace` line answers `POST` + `wc-ajax=ppc-sdk-v6-client-token` with
+  a `410` and exits, before the remaining plugins, the theme, `init` and the
+  main query run.
+
+---
+
 ## 4.2.0 — 2026-10-21
 
 Carry-forward of the 4.1.3 patch to plugin v4.2.0. **No new targets** — the same

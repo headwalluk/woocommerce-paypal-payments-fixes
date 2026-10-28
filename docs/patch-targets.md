@@ -3,7 +3,7 @@
 Research notes on what we patch in WooCommerce PayPal Payments (PPCP), why, and
 what we might patch in the future.
 
-Last updated: 2026-10-21 (plugin v4.2.0)
+Last updated: 2026-10-28 (plugin v4.2.0)
 
 ---
 
@@ -14,6 +14,8 @@ Last updated: 2026-10-21 (plugin v4.2.0)
 | File | Target | Patch | Why |
 |------|--------|-------|-----|
 | `modules/ppcp-wc-subscriptions/src/Helper/SubscriptionHelper.php` | `paypal_subscription_id()` | Replace dead `assert()`s with real `isset()` + `instanceof WC_Product` guards (`continue` on miss) | Cart item with no `product_id`, or an id that no longer resolves to a product, makes `wc_get_product()` return `false`; the next line calls `->get_type()` on it → `Uncaught Error: Call to a member function get_type() on false` (hard 500). `assert()` is compiled out in production so the vendor's guard does nothing. **Reach widened in 4.1.2:** also called from `SmartButton`'s mini-cart and proceed-to-checkout render hooks via `paypal_subscription_button_allowed()` → `checkout_subscription_product_allowed()`, not just at localize time. **Widened again in 4.1.3:** `DisableGateways::handler()` (on the `woocommerce_available_payment_gateways` filter) now reaches it via `subscription_cart_processable()`, and `need_subscription_intent()` reaches it on the product page under Accept Manual Renewals. Still unfixed upstream — `SubscriptionHelper.php` is byte-identical in 4.1.3 and 4.2.0. |
+| `modules.php` | SDK v6 module gate | `if (\false)` replaces the `sdk_v6_enabled` filter / `woocommerce-ppcp-sdk-v6-eligible` condition | Forces SDK v5. In v6, `ppcp-sdk-v6-js-boot.js`'s token refresher calls `scheduleRefresh(retryIn)` after *any* failure and never gives up. Once the page nonce expires, every request gets a 400, so a product page left open polls `?wc-ajax=ppc-sdk-v6-client-token` indefinitely ([support thread](https://wordpress.org/support/topic/4-2-0-product-pages-left-open-retry-the-paypal-token-request-every-30-seconds-f/); vendor promises a fix in 4.2.1). Consumers outside the module guard on `$c->has('sdk-v6.*')`, so leaving it unloaded is the same path an ineligible store takes. Replaces the per-store `headwall-ppcp-sdk-v5.php` mu-plugin. |
+| `woocommerce-paypal-payments.php` | Top of file, after `namespace` | `POST` + `wc-ajax=ppc-sdk-v6-client-token` → `status_header(410); exit;` | Tabs already running v6 keep polling until the user closes them, and no server response stops the JS loop. With v6 off nothing handles that action, so each poll would otherwise boot all of WordPress and WooCommerce just to return nothing. Exiting while plugins are still loading skips the later plugins, the theme, `init` and the main query. |
 
 ### Privacy / data-sharing
 
@@ -97,7 +99,14 @@ Targets identified during analysis that are not yet patched.
   `…_abilities_enabled` filter to `\false`) — same playbook as the store-sync
   gate. Re-read this module every release.
 
-### `ppcp-sdk-v6` — PayPal JS SDK v6 (ACCEPTED, added v4.1.2, decided v4.2.0)
+### `ppcp-sdk-v6` — PayPal JS SDK v6 (DISABLED from 2026-10-28, added v4.1.2)
+
+> **Superseded 2026-10-28:** the v6 client-token retry loop is a production
+> load bug, so the 4.2.0 patch now forces v5 (see *Currently Patched*). Check
+> whether 4.2.1 really fixes the loop before dropping the gate hunk. When you drop
+> it, also remove the fleet-side workarounds listed in `dev-notes/`. The notes
+> below record the original decision.
+
 
 - **Module:** `modules/ppcp-sdk-v6/` (new in 4.1.2, substantially expanded in
   4.1.3, default for all stores from 4.2.0).
