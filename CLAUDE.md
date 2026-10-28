@@ -43,3 +43,7 @@ To analyse a new PPCP release for patch targets:
 1. Run `./scripts/prepare-analysis.sh`.
 2. Follow `scripts/analyse-paypal-payments.md` — it covers carrying forward existing hunks, scanning for new outbound HTTP / cron / REST endpoints (the data-sharing angle), and a quick pass for the kind of `assert()`-guarded type bugs that have already bitten us.
 3. Promote the candidate to `patches/`, update `CHANGELOG.md` and `docs/patch-targets.md`, and copy the patch to the WPatcher tree for deployment.
+
+## Fleet-specific notes
+
+`dev-notes/` is git-ignored and holds host-, client- and fleet-specific notes (hostnames, client domains, vhost/CDN snippets, per-site workarounds, rollout plans). Keep those out of `docs/`, `CHANGELOG.md` and the README. When a hunk is dropped, check `dev-notes/` for fleet-side workarounds that need removing too.

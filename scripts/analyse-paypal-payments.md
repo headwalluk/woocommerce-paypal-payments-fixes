@@ -216,3 +216,6 @@ cd /tmp/ppcp-verify && patch -p1 --dry-run < ../woocommerce-paypal-payments-X.Y.
    `docs/patch-targets.md` (current targets / future candidates / domains).
 3. Copy the patch into the WPatcher tree for deployment
    (`/opt/headwall-isp/wpatches/plugins/woocommerce-paypal-payments/`).
+4. If a hunk was **dropped** (fixed upstream or no longer needed), check
+   `dev-notes/` (local, git-ignored) for fleet-side workarounds tied to it —
+   mu-plugins, vhost rules, CDN blocks — and remove those too.

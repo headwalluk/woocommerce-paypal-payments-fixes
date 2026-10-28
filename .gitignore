@@ -14,3 +14,7 @@ Thumbs.db
 *~
 .idea/
 .vscode/
+
+# Fleet-, host- and client-specific notes (hostnames, client domains, vhost
+# snippets, rollout plans). Kept local; the repo itself may be public.
+dev-notes/
