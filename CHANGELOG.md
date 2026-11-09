@@ -5,6 +5,80 @@ PayPal Payments version.
 
 ---
 
+## 4.2.2 — 2026-11-09
+
+The 4.2.1 patch carried forward: same three files and same fixes. The badge
+date stays 2026-11-09, but the badge is restyled from the purple
+`PATCHED : <date>` block to the subtle green pill now used across the fleet's
+WPatcher patches (as in the WooCommerce 11.2.2 patch): `&#10003; Patched
+<date>`, with a hover `title`. That change only touches the `plugin_row_meta`
+callback; the `// START : wpatcher` / `// END : wpatcher` markers are unchanged.
+
+Built from the wordpress.org `latest-stable` zip via
+`scripts/prepare-analysis.sh`.
+
+4.2.2 is a relabelled 4.2.1, published about an hour later. No PHP or JS file
+differs from the 4.2.1 GitHub distributable. The only changes are the plugin
+header (`Version: 4.2.1-rc2+release-4-2-1.e19b9af` → `4.2.2`, plus the build
+`SHA`), `PAYPAL_INTEGRATION_DATE` (`2026-10-30` → `2026-11-09`), the version
+lines in `readme.txt` / `changelog.txt`, and Composer's build-hash strings in
+`vendor/composer/`. The changelog is word-for-word the 4.2.1 one.
+wordpress.org went from 4.2.0 straight to 4.2.2, so stores update from 4.2.0
+to 4.2.2. The 4.2.1 analysis below applies in full.
+
+---
+
+## 4.2.1 — 2026-11-09
+
+Carry-forward of the store-sync and subscription hunks to plugin v4.2.1. The
+**two force-SDK-v5 hunks are dropped** (`modules.php` gate, `410` guard), so
+stores return to SDK v6 on this version. Badge date bumped to 2026-11-09.
+
+Built from the GitHub release distributable (`woocommerce-paypal-payments.zip`,
+sha256 `34ccce52…c77f1`), because wordpress.org still served 4.2.0. That build's
+plugin header reads `Version: 4.2.1-rc2+release-4-2-1.e19b9af`, while
+`readme.txt` says `Stable tag: 4.2.1`. No hunk touches the header line, so the
+patch should apply to the wordpress.org build either way.
+
+A patch release (≈50 changed PHP files, no new modules, `modules.php`
+unchanged).
+
+### Dropped: SDK v6 forced off
+
+Fixed upstream (#4847). In all three v6 bundles (`ppcp-sdk-v6-js-boot.js`,
+`-checkout-block.js`, `-boot-add-payment-method.js`), the token refresher now
+goes through `scheduleRetry()`. It calls `stop()` on any HTTP status below 500
+except 408/429, and also after three consecutive failures. An expired nonce
+gets a JSON `400` from `ClientTokenEndpoint`, and the fetch wrapper copies that
+status onto the error, so the first failure ends the loop. A `410` (no JSON) is
+treated the same way. `stop()` also clears `refreshAt`, so the
+`visibilitychange` handler can't start it again. Separately,
+`REFRESH_BEFORE_EXPIRY` goes from 60s to 120s (#4841).
+
+### Carried forward
+
+- **`SubscriptionHelper.php`**: still unfixed upstream. The only change is a
+  refactor (`is_mode_disabled_by_filter()`, new
+  `is_mode_disabled_for_manual_renewals()`). `paypal_subscription_id()` still
+  relies on dead `assert()`s. The hunks apply at offset +10.
+- **`AgenticSettingsDataModel.php`**: byte-identical to 4.2.0.
+
+### Reviewed and left alone
+
+- **No new data-sharing.** No new hosts. The `paypalobjects.com/insights`
+  Fastlane script URL only moved into `ppcp-axo/services.php`. There are no new
+  `wp_remote_*`, Action Scheduler or `register_rest_route` calls.
+- **`ppcp-store-sync`**: the only change is in `AgenticCheckoutProcessor`, which
+  now also saves `PayPalGateway::ORDER_ID_META_KEY`. It sits behind the gate.
+  The Store Sync beta banner (`AgenticBetaBannerEligibility`) is now limited to
+  US merchant countries (#4845), which narrows it.
+- **New `ProductPaymentSupportTrait`** (hides buttons on out-of-stock, external
+  and grouped products, #4848): `wc_get_product()` is behind a real
+  `instanceof`. The `assert(WC_Product_Variable)` comes right after an
+  `is_type('variable')` check, so it doesn't reproduce the bug pattern we patch.
+
+---
+
 ## 4.2.0 (revised) — 2026-10-28
 
 Two new hunks that reverse the 2026-10-21 decision to accept SDK v6. Badge date
